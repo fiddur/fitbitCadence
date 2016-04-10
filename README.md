@@ -58,3 +58,21 @@ The Fitbit API is only semi-open.  I don't have a "Partner API client", but I do
 client".  Unfortunately, that means that I only get access to my own intra-day time series, so this
 app is only useful to myself right now.  However, anyone should be able to clone it and get their
 own personal api client with fitbit.
+
+
+So, what does it look like? (Screenshots)
+-----------------------------------------
+
+This is how I see it, after having triggered analysis of the 2 last weeks:
+
+Welcoming splash screen…
+
+![splash](img/fc1.png)
+
+After logging in, it loads all analysed runs (without pagination…):
+
+![runs](img/fc2.png)
+
+And when clicking on a run, it displays a minute by minute chart of the run:
+
+![chart](img/fc3.png)
