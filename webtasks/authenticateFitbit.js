@@ -48,7 +48,6 @@ app.get('/', (req, res, next) => {
     )
   ).then(
     result => {
-      console.log('secret', req.webtaskContext.data.JWT_SECRET)
       const userJwt = jwt.sign(
         {sub: result.value.fitbitId},
         req.webtaskContext.data.JWT_SECRET,
