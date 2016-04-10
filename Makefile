@@ -5,7 +5,7 @@ authenticateFitbit:
 	  -s MONGO_URL=$(MONGO_URL) \
 	  -s FITBIT_CLIENT_ID=$(FITBIT_CLIENT_ID) \
 	  -s FITBIT_CLIENT_SECRET=$(FITBIT_CLIENT_SECRET) \
-	  -s JWT_SERCRET=$(JWT_SERCRET) \
+	  -s JWT_SECRET=$(JWT_SECRET) \
 	  --no-parse --no-merge
 
 receivePush:
@@ -19,4 +19,4 @@ receivePush:
 cadence:
 	wt create webtasks/cadence.js \
 	  -s MONGO_URL=$(MONGO_URL) \
-	  -s JWT_SERCRET=$(JWT_SERCRET)
+	  -s JWT_SECRET=$(JWT_SECRET)
