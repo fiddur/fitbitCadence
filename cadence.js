@@ -43,7 +43,9 @@ function showUser(userJwt) {
         data.runs[date].forEach(function(run) {
           var li = document.createElement('li')
           var time = Math.floor(run.start / 60) + ':' + (run.start % 60)
-          li.innerHTML = date + ': ' + time + ' median ' + run.median
+          li.innerHTML = date + ' ' + time + '<br/>'
+            + 'Time spent: ' + run.steps.length + '<br/>'
+            + 'Median cadence: ' + run.median
           li.addEventListener('click', function() {drawChart(run)})
 
           ul.appendChild(li)
