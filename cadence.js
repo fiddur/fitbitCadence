@@ -70,26 +70,31 @@ function onLoad() {
 }
 
 function drawChart(run) {
-  var ctx = e('myChart').getContext('2d')
-  ctx.canvas.width  = window.innerWidth
-  ctx.canvas.height = window.innerHeight
+  e('chart').innerHTML = ''
+
+  var canvas = document.createElement('canvas')
+  e('chart').appendChild(canvas)
+
+  var ctx    = canvas.getContext('2d')
+
+  ctx.canvas.width  = Math.floor(window.innerWidth * .95)
+  ctx.canvas.height = Math.floor(window.innerHeight * .8)
 
   var data = {
     labels: run.steps.map(function(step, i) {return i}),
     datasets: [{
-      label: "My First dataset",
-      fillColor: "rgba(220,220,220,0.2)",
-      strokeColor: "rgba(220,220,220,1)",
-      pointColor: "rgba(220,220,220,1)",
-      pointStrokeColor: "#fff",
-      pointHighlightFill: "#fff",
-      pointHighlightStroke: "rgba(220,220,220,1)",
-      data: run.steps,
+      label:                'Running cadence',
+      fillColor:            'rgba(220,220,220,0.2)',
+      strokeColor:          'rgba(220,220,220,1)',
+      pointColor:           'rgba(220,220,220,1)',
+      pointStrokeColor:     '#fff',
+      pointHighlightFill:   '#fff',
+      pointHighlightStroke: 'rgba(220,220,220,1)',
+      data:                 run.steps,
     }]
   }
 
   console.log(data)
 
   var myLineChart = new Chart(ctx).Line(data, {})
-
 }
