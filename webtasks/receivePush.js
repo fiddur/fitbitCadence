@@ -42,7 +42,7 @@ const updateStepsInMongo = (db, id, date, steps) => {
   )
 }
 
-const getNewFitbitAccessToken = (user, clientID, clientSecret) => {
+const getNewFitbitAccessToken = (db, user, clientID, clientSecret) => {
   const basic = new Buffer(clientID + ':' + clientSecret).toString('base64')
   console.log('Refreshing with refreshToken:', user.refreshToken)
   return rp({
