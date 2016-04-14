@@ -1,5 +1,6 @@
 'use strict'
 
+const assert    = require('assert')
 const aasync    = require('asyncawait/async')
 const aawait    = require('asyncawait/await')
 const httpMocks = require('node-mocks-http')
@@ -14,19 +15,36 @@ describe('receivePush handler', () => {
       const req     = httpMocks.createRequest({
         method: 'GET',
         url: '/',
-        query: {verify: 'foo'}
+        query: {verify: 'foo'},
+        x_wt:  {jtn:    'jtn'},
       })
-      const res = httpMocks.createResponse({eventEmitter: events})
-
-      receivePush(context, req, res)
+      const res = httpMocks.createResponse({eventEmitter: events.EventEmitter})
 
       res.on('end', () => {
-        console.log(res)
+        assert.equal(res.statusCode, 204)
         done()
       })
+
+      receivePush(context, req, res)
     })
 
-    it('should give 404 on wrong token', aasync(() => {
-    }))
+    it('should give 404 on wrong token', (done) => {
+      const context = {secrets: {FITBIT_VERIFY: 'foo'}}
+      const req     = httpMocks.createRequest({
+        method: 'GET',
+        url: '/',
+        query: {verify: 'bar'},
+        x_wt:  {jtn:    'jtn'},
+      })
+      const res = httpMocks.createResponse({eventEmitter: events.EventEmitter})
+
+      res.on('end', () => {
+        assert.equal(res.statusCode, 404)
+        done()
+      })
+
+      receivePush(context, req, res)
+    })
+
   })
 })

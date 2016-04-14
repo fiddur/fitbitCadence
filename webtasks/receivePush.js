@@ -155,7 +155,7 @@ app.post('/', (req, res) => {
 
 // For Fitbit verify-calls.
 app.get('/', (req, res) => {
-  if (req.query.verify === req.webtaskContext.data.FITBIT_VERIFY) return res.sendStatus(204)
+  if (req.query.verify === req.webtaskContext.secrets.FITBIT_VERIFY) return res.sendStatus(204)
   res.sendStatus(404)
 })
 
@@ -164,5 +164,5 @@ module.exports = (context, req, res) => {
   app.locals.mongo = context.mongoClient || MongoClient
   app.locals.rp    = context.rp          || rp
 
-  return webtask.fromExpress(app)
+  return webtask.fromExpress(app)(context, req, res)
 }
