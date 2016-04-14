@@ -8,12 +8,12 @@ const rp          = require('request-promise')
 const MongoClient = require('mongodb').MongoClient
 const Promise     = require('bluebird')
 
-const server = express()
-server.use(bodyParser.json())
+const app = express()
+app.use(bodyParser.json())
 
 const fetchUserFromMongo = (db, id) => db.collection('users').findOne({fitbitId: id})
 
-const getStepsFromFitbit = (db, user, date, clientID, clientSecret) => {
+const getStepsFromFitbit = (rp, db, user, date, clientID, clientSecret) => {
   const stepsUrl = 'https://api.fitbit.com/1/user/' + user.fitbitId +
         '/activities/steps/date/' + date + '/1d/1min.json'
   return rp({
@@ -23,10 +23,10 @@ const getStepsFromFitbit = (db, user, date, clientID, clientSecret) => {
   }).catch(err => {
     // Try to use refreshToken to get new accessToken.
     if (err.statusCode === 401 && err.error.errors[0].errorType === 'expired_token') {
-      return getNewFitbitAccessToken(db, user, clientID, clientSecret)
+      return getNewFitbitAccessToken(rp, db, user, clientID, clientSecret)
         .then(accessToken => {
           user.accessToken = accessToken // @todo Update in Mongo
-          return getStepsFromFitbit(db, user, date, clientID, clientSecret)
+          return getStepsFromFitbit(rp, db, user, date, clientID, clientSecret)
         })
     }
     else throw err
@@ -42,7 +42,7 @@ const updateStepsInMongo = (db, id, date, steps) => {
   )
 }
 
-const getNewFitbitAccessToken = (db, user, clientID, clientSecret) => {
+const getNewFitbitAccessToken = (rp, db, user, clientID, clientSecret) => {
   const basic = new Buffer(clientID + ':' + clientSecret).toString('base64')
   console.log('Refreshing with refreshToken:', user.refreshToken)
   return rp({
@@ -123,16 +123,16 @@ const analyzeSteps = steps => {
   return runs
 }
 
-server.post('/', (req, res) => {
+app.post('/', (req, res) => {
   res.sendStatus(204) // Just acknowledge receiving the push.
 
-  MongoClient.connect(req.webtaskContext.data.MONGO_URL, {promiseLibrary: Promise})
+  app.locals.mongo.connect(req.webtaskContext.data.MONGO_URL, {promiseLibrary: Promise})
     .then(db => Promise.all(req.body.map(
       updated => fetchUserFromMongo(db, updated.ownerId)
         .then(user => Promise.all([
           user,
           getStepsFromFitbit(
-            db, user, updated.date, req.webtaskContext.data.FITBIT_CLIENT_ID,
+            app.locals.rp, db, user, updated.date, req.webtaskContext.data.FITBIT_CLIENT_ID,
             req.webtaskContext.data.FITBIT_CLIENT_SECRET
           )
         ]))
@@ -154,9 +154,15 @@ server.post('/', (req, res) => {
 })
 
 // For Fitbit verify-calls.
-server.get('/', (req, res) => {
+app.get('/', (req, res) => {
   if (req.query.verify === req.webtaskContext.data.FITBIT_VERIFY) return res.sendStatus(204)
   res.sendStatus(404)
 })
 
-module.exports = webtask.fromExpress(server)
+module.exports = (context, req, res) => {
+  // Allow io-handlers to be overridden for testing.
+  app.locals.mongo = context.mongoClient || MongoClient
+  app.locals.rp    = context.rp          || rp
+
+  return webtask.fromExpress(app)
+}
