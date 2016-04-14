@@ -11,9 +11,17 @@ const Promise     = require('bluebird')
 const app = express()
 app.use(bodyParser.json())
 
-const fetchUserFromMongo = (db, id) => db.collection('users').findOne({fitbitId: id})
+const UserStore = userCollection => ({
+  get: id => userCollection.findOne({fitbitId: id}),
+  update: (id, update, options) => userCollection.findOneAndUpdate(
+    {fitbitId: id},
+    {$set: update},
+    options
+  ),
+})
 
-const getStepsFromFitbit = (rp, db, user, date, clientID, clientSecret) => {
+/// todo break out fitbit api-client so we don't have to pass id and secret.
+const getStepsFromFitbit = (rp, db, userStore, user, date, clientID, clientSecret) => {
   const stepsUrl = 'https://api.fitbit.com/1/user/' + user.fitbitId +
         '/activities/steps/date/' + date + '/1d/1min.json'
   return rp({
@@ -23,10 +31,10 @@ const getStepsFromFitbit = (rp, db, user, date, clientID, clientSecret) => {
   }).catch(err => {
     // Try to use refreshToken to get new accessToken.
     if (err.statusCode === 401 && err.error.errors[0].errorType === 'expired_token') {
-      return getNewFitbitAccessToken(rp, db, user, clientID, clientSecret)
+      return getNewFitbitAccessToken(rp, userStore, user, clientID, clientSecret)
         .then(accessToken => {
           user.accessToken = accessToken // @todo Update in Mongo
-          return getStepsFromFitbit(rp, db, user, date, clientID, clientSecret)
+          return getStepsFromFitbit(rp, db, userStore, user, date, clientID, clientSecret)
         })
     }
     else throw err
@@ -42,7 +50,7 @@ const updateStepsInMongo = (db, id, date, steps) => {
   )
 }
 
-const getNewFitbitAccessToken = (rp, db, user, clientID, clientSecret) => {
+const getNewFitbitAccessToken = (rp, userStore, user, clientID, clientSecret) => {
   const basic = new Buffer(clientID + ':' + clientSecret).toString('base64')
   console.log('Refreshing with refreshToken:', user.refreshToken)
   return rp({
@@ -58,23 +66,24 @@ const getNewFitbitAccessToken = (rp, db, user, clientID, clientSecret) => {
     },
   }).then(response => {
     // Update accessToken in db.
-    db.collection('users').findOneAndUpdate(
-      {fitbitId: user.fitbitId},
-      {$set: {
+    userStore.update(
+      user.fitbitId,
+      {
         accessToken:  response.access_token,
         refreshToken: response.refresh_token,
-      }}
+      }
     ).catch(err => console.log(err)) // This error is not fatal for the token.
 
     return response.access_token
   }).catch(err => {
     console.log('Couldnt refresh token.  Clearing tokens from user', user.fitbitId)
+    console.log(err2.name, err2.statusCode, err2.message, err2.error)
 
-    // If we can't refresh the accessToken, remove all tokens from user.
-    return db.collection('users').findOneAndUpdate(
-      {fitbitId: user.fitbitId},
-      {$set: {accessToken:  null, refreshToken: null}}
-    )
+    //// If we can't refresh the accessToken, remove all tokens from user.
+    //return userStore.update(
+    //  user.fitbitId,
+    //  {accessToken: null, refreshToken: null}
+    //)
   })
 }
 
@@ -126,31 +135,35 @@ const analyzeSteps = steps => {
 app.post('/', (req, res) => {
   res.sendStatus(204) // Just acknowledge receiving the push.
 
-  app.locals.mongo.connect(req.webtaskContext.data.MONGO_URL, {promiseLibrary: Promise})
-    .then(db => Promise.all(req.body.map(
-      updated => fetchUserFromMongo(db, updated.ownerId)
-        .then(user => Promise.all([
-          user,
-          getStepsFromFitbit(
-            app.locals.rp, db, user, updated.date, req.webtaskContext.data.FITBIT_CLIENT_ID,
-            req.webtaskContext.data.FITBIT_CLIENT_SECRET
-          )
-        ]))
-        .spread((user, steps) => Promise.all([
-          updateStepsInMongo(
-            db, updated.ownerId, updated.date,
-            steps['activities-steps-intraday'].dataset
-          ),
-          analyzeSteps(steps['activities-steps-intraday'].dataset),
-          user
-        ]))
-        .spread((result, analysis, user) => db.collection('users').findOneAndUpdate(
-          {fitbitId: user.fitbitId},
-          {$set: {['runsByDate.' + updated.date]: analysis}}
-        ))
-    )))
+  app.locals.mongo.connect(req.webtaskContext.secrets.MONGO_URL, {promiseLibrary: Promise})
+    .then(db => {
+      const userStore = UserStore(db.collection('users'))
+
+      return Promise.all(req.body.map(
+        updated => userStore.get(updated.ownerId)
+          .then(user => Promise.all([
+            user,
+            getStepsFromFitbit(
+              app.locals.rp, db, userStore, user, updated.date,
+              req.webtaskContext.secrets.FITBIT_CLIENT_ID,
+              req.webtaskContext.secrets.FITBIT_CLIENT_SECRET
+            )
+          ]))
+          .spread((user, steps) => Promise.all([
+            updateStepsInMongo(
+              db, updated.ownerId, updated.date,
+              steps['activities-steps-intraday'].dataset
+            ),
+            analyzeSteps(steps['activities-steps-intraday'].dataset),
+            user
+          ]))
+          .spread((result, analysis, user) => userStore.update(
+            user.fitbitId, {['runsByDate.' + updated.date]: analysis}
+          ))
+      ))
+    })
     .then(result => {console.log('All things done.', result)})
-    .catch(err => {console.log(err)})
+    .catch(err => {console.log('Err', err)})
 })
 
 // For Fitbit verify-calls.
@@ -166,3 +179,4 @@ module.exports = (context, req, res) => {
 
   return webtask.fromExpress(app)(context, req, res)
 }
+module.exports.UserStore = UserStore
