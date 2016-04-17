@@ -20,25 +20,51 @@ const UserStore = userCollection => ({
   ),
 })
 
-/// todo break out fitbit api-client so we don't have to pass id and secret.
-const getStepsFromFitbit = (rp, db, userStore, user, date, clientID, clientSecret) => {
-  const stepsUrl = 'https://api.fitbit.com/1/user/' + user.fitbitId +
-        '/activities/steps/date/' + date + '/1d/1min.json'
-  return rp({
-    headers: {'Authorization': 'Bearer ' + user.accessToken},
-    uri:     stepsUrl,
-    json:    true,
-  }).catch(err => {
-    // Try to use refreshToken to get new accessToken.
-    if (err.statusCode === 401 && err.error.errors[0].errorType === 'expired_token') {
-      return getNewFitbitAccessToken(rp, userStore, user, clientID, clientSecret)
-        .then(accessToken => {
-          user.accessToken = accessToken // @todo Update in Mongo
-          return getStepsFromFitbit(rp, db, userStore, user, date, clientID, clientSecret)
-        })
+/**
+ *
+ */
+const FitbitApi = function(rp, clientID, clientSecret, userStore) {
+  // Expects user to have fitbitId and accessToken
+  this.getSteps = (user, date) => {
+    const stepsUrl = 'https://api.fitbit.com/1/user/' + user.fitbitId +
+          '/activities/steps/date/' + date + '/1d/1min.json'
+    return rp({
+      headers: {'Authorization': 'Bearer ' + user.accessToken},
+      uri:     stepsUrl,
+      json:    true,
+    })
+      .catch(
+        err => this.handleRejection(err, user)
+          .then(() => this.getSteps(user, date))
+      )
+  }
+
+  this.handleRejection = (error, user) => {
+    if (error.statusCode !== 401 || error.error.errors[0].errorType !== 'expired_token') {
+      throw error
     }
-    else throw err
-  })
+
+    console.log('Refreshing with refreshToken:', user.refreshToken)
+    const basic = new Buffer(clientID + ':' + clientSecret).toString('base64')
+    return rp({
+      method: 'POST',
+      uri: 'https://api.fitbit.com/oauth2/token',
+      headers: {
+        'Authorization': 'Basic ' + basic,
+        'Content-Type':  'application/x-www-form-urlencoded',
+      },
+      form: {
+        grant_type: 'refresh_token',
+        refresh_token: user.refreshToken,
+      },
+    }).then(response => {
+      userStore.update(user.fitbitId, {
+        accessToken: response.access_token, refreshToken: response.refresh_token
+      })
+    })
+  }
+
+  return this
 }
 
 // Store all steps in separate collection for later charting.
@@ -48,43 +74,6 @@ const updateStepsInMongo = (db, id, date, steps) => {
     {user: id, date: date, steps: steps},
     {upsert: true}
   )
-}
-
-const getNewFitbitAccessToken = (rp, userStore, user, clientID, clientSecret) => {
-  const basic = new Buffer(clientID + ':' + clientSecret).toString('base64')
-  console.log('Refreshing with refreshToken:', user.refreshToken)
-  return rp({
-    method: 'POST',
-    uri: 'https://api.fitbit.com/oauth2/token',
-    headers: {
-      'Authorization': 'Basic ' + basic,
-      'Content-Type':  'application/x-www-form-urlencoded',
-    },
-    form: {
-      grant_type: 'refresh_token',
-      refresh_token: user.refreshToken,
-    },
-  }).then(response => {
-    // Update accessToken in db.
-    userStore.update(
-      user.fitbitId,
-      {
-        accessToken:  response.access_token,
-        refreshToken: response.refresh_token,
-      }
-    ).catch(err => console.log(err)) // This error is not fatal for the token.
-
-    return response.access_token
-  }).catch(err => {
-    console.log('Couldnt refresh token.  Clearing tokens from user', user.fitbitId)
-    console.log(err2.name, err2.statusCode, err2.message, err2.error)
-
-    //// If we can't refresh the accessToken, remove all tokens from user.
-    //return userStore.update(
-    //  user.fitbitId,
-    //  {accessToken: null, refreshToken: null}
-    //)
-  })
 }
 
 /// Find runs; reduce steps to an array of runs with start, pauses, and end
@@ -138,17 +127,16 @@ app.post('/', (req, res) => {
   app.locals.mongo.connect(req.webtaskContext.secrets.MONGO_URL, {promiseLibrary: Promise})
     .then(db => {
       const userStore = UserStore(db.collection('users'))
+      const fitbitApi = FitbitApi(
+        app.locals.rp,
+        req.webtaskContext.secrets.FITBIT_CLIENT_ID,
+        req.webtaskContext.secrets.FITBIT_CLIENT_SECRET,
+        userStore
+      )
 
       return Promise.all(req.body.map(
         updated => userStore.get(updated.ownerId)
-          .then(user => Promise.all([
-            user,
-            getStepsFromFitbit(
-              app.locals.rp, db, userStore, user, updated.date,
-              req.webtaskContext.secrets.FITBIT_CLIENT_ID,
-              req.webtaskContext.secrets.FITBIT_CLIENT_SECRET
-            )
-          ]))
+          .then(user => Promise.all([user, fitbitApi.getSteps(user, updated.date)]))
           .spread((user, steps) => Promise.all([
             updateStepsInMongo(
               db, updated.ownerId, updated.date,
@@ -180,3 +168,4 @@ module.exports = (context, req, res) => {
   return webtask.fromExpress(app)(context, req, res)
 }
 module.exports.UserStore = UserStore
+module.exports.FitbitApi = FitbitApi

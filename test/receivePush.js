@@ -6,6 +6,7 @@ const aawait    = require('asyncawait/await')
 const httpMocks = require('node-mocks-http')
 const events    = require('events')
 const Promise   = require('bluebird')
+const sinon     = require('sinon')
 
 const receivePush = require('../webtasks/receivePush.js')
 
@@ -105,6 +106,78 @@ describe('receivePush handler', () => {
       receivePush(context, req, res)
     })
   })
+
+  describe('fitbitApi', () => {
+    it('should return step data', aasync(() => {
+      const rp = sinon.stub()
+      rp.onCall(0).returns(Promise.resolve({
+        'activities-log-steps': [{dateTime: '1970-01-01',value:1433}],
+        'activities-log-steps-intraday': {
+          datasetInterval: 1,
+          dataset: [
+            {time: '00:00:00',value:   0},
+            {time: '00:01:00',value:   0},
+            {time: '00:02:00',value:   0},
+            {time: '00:03:00',value:   0},
+            {time: '00:04:00',value:   0},
+            {time: '00:05:00',value: 287},
+            {time: '00:06:00',value: 287},
+            {time: '00:07:00',value: 287},
+            {time: '00:08:00',value: 287},
+            {time: '00:09:00',value: 287},
+            {time: '00:10:00',value:   0},
+            {time: '00:11:00',value:   0},
+          ]
+        }
+      }))
+
+      const userStore = {}
+      const fitbitApi = receivePush.FitbitApi(rp, 'quux', 'corge', userStore)
+
+      const steps = aawait(fitbitApi.getSteps(
+        {fitbitId: 'grault', accessToken: 'garply', refreshToken: 'waldo'}, '1970-01-01'
+      ))
+
+      assert(rp.calledOnce)
+      const requestArguments = rp.getCall(0).args
+      assert(requestArguments[0].uri.match(
+        /grault\/activities\/steps\/date\/1970-01-01\/1d\/1min.json/
+      ))
+    }))
+
+    it('should request a new accessToken on rejection and try again', aasync(() => {
+      const rp = sinon.stub()
+
+      const rejectionError = new Error()
+      rejectionError.statusCode = 401
+      rejectionError.error = {errors: [{errorType: 'expired_token'}]}
+
+      rp.onCall(0).returns(Promise.reject(rejectionError))
+      rp.onCall(1).returns(Promise.resolve({
+        access_token:  'foo',
+        refresh_token: 'bar',
+        user_id:       'baz',
+      }))
+      rp.onCall(2).returns(Promise.resolve('qux'))
+
+      const userStoreUpdate = sinon.spy()
+      const userStore = {update: userStoreUpdate}
+      const fitbitApi = receivePush.FitbitApi(rp, 'quux', 'corge', userStore)
+
+      const steps = aawait(fitbitApi.getSteps(
+        {fitbitId: 'grault', accessToken: 'garply', refreshToken: 'waldo'}, '1970-01-01'
+      ))
+
+      assert(
+        userStoreUpdate.calledWith('grault', {accessToken: 'foo', refreshToken: 'bar'}),
+        'UserStore should be updated with new tokens.'
+      )
+      const refreshArguments = rp.getCall(1).args
+      assert.equal(refreshArguments[0].form.refresh_token, 'waldo')
+      assert.equal(steps, 'qux')
+    }))
+  })
+
   //
   //  it('should update mongo with steps if accessTokens are up to date', done => {
   //    console.log('Worked?', receivePush.fetchUserFromMongo)
