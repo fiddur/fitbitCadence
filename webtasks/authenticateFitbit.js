@@ -30,9 +30,9 @@ app.get('/', (req, res, next) => {
 app.get('/', (req, res, next) => {
   if (!('state' in req.query)) return next()
 
-  const clientID = req.webtaskContext.secrets.FITBIT_CLIENT_ID
+  const clientID     = req.webtaskContext.secrets.FITBIT_CLIENT_ID
   const clientSecret = req.webtaskContext.secrets.FITBIT_CLIENT_SECRET
-  const basic = new Buffer(clientID + ':' + clientSecret).toString('base64')
+  const basic        = new Buffer(clientID + ':' + clientSecret).toString('base64')
 
   Promise.resolve()
     // Authentication OAuth2: get access token and user id.
