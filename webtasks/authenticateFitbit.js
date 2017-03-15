@@ -32,16 +32,16 @@ app.get('/', (req, res, next) => {
 
   const clientID     = req.webtaskContext.secrets.FITBIT_CLIENT_ID
   const clientSecret = req.webtaskContext.secrets.FITBIT_CLIENT_SECRET
-  const basic        = new Buffer(clientID + ':' + clientSecret).toString('base64')
+  const basic        = new Buffer(`${clientID}:${clientSecret}`).toString('base64')
 
   Promise.resolve()
     // Authentication OAuth2: get access token and user id.
     .then(() => rp({
-      method: 'POST',
-      uri: 'https://api.fitbit.com/oauth2/token',
+      method:  'POST',
+      uri:     'https://api.fitbit.com/oauth2/token',
       headers: {
-        'Authorization': 'Basic ' + basic,
-        'Content-Type':  'application/x-www-form-urlencoded',
+        Authorization:  `Basic ${basic}`,
+        'Content-Type': 'application/x-www-form-urlencoded',
       },
       form: {
         code:         req.query.code,
@@ -50,7 +50,7 @@ app.get('/', (req, res, next) => {
         redirect_uri: 'https://webtask.it.auth0.com/api/run/wt-fredrik-liljegren_org-0/authenticateFitbit/',
         state:        'fitbitCallback',
       },
-      json: true
+      json: true,
     }))
 
     // Connect to database.
