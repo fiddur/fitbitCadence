@@ -11,8 +11,6 @@ const moment      = require('moment')
 
 const app = express()
 
-// When user has requested authentication, this would be opened in a new window.
-// User gets redirected to Fitbit for OAuth2 authentication.
 app.get('/', (req, res, next) => {
   if ('state' in req.query) return next() // Go to callback handler below.
 
