@@ -114,7 +114,7 @@ app.get('/', (req, res, next) => {
     })
     .catch(err => {
       console.log(err)
-      res.status(500).send('Didn\'t work :·(')
+      res.status(500).send(`Didn't work :·(`)
     })
 })
 
