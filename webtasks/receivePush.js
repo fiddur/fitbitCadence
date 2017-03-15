@@ -12,30 +12,30 @@ const app = express()
 app.use(bodyParser.json())
 
 const UserStore = userCollection => ({
-  get: id => userCollection.findOne({fitbitId: id}),
+  get:    id => userCollection.findOne({ fitbitId: id }),
   update: (id, update, options) => userCollection.findOneAndUpdate(
-    {fitbitId: id},
-    {$set: update},
-    options
+    { fitbitId: id },
+    { $set: update },
+    options,
   ),
 })
 
 /**
  *
  */
-const FitbitApi = function(rp, clientID, clientSecret, userStore) {
+const FitbitApi = function (rp, clientID, clientSecret, userStore) {
   // Expects user to have fitbitId and accessToken
   this.getSteps = (user, date) => {
-    const stepsUrl = 'https://api.fitbit.com/1/user/' + user.fitbitId +
-          '/activities/steps/date/' + date + '/1d/1min.json'
+    const stepsUrl = `https://api.fitbit.com/1/user/${user.fitbitId
+          }/activities/steps/date/${date}/1d/1min.json`
     return rp({
-      headers: {'Authorization': 'Bearer ' + user.accessToken},
+      headers: { Authorization: `Bearer ${user.accessToken}` },
       uri:     stepsUrl,
       json:    true,
     })
       .catch(
         err => this.handleRejection(err, user)
-          .then(() => this.getSteps(user, date))
+          .then(() => this.getSteps(user, date)),
       )
   }
 
@@ -45,21 +45,21 @@ const FitbitApi = function(rp, clientID, clientSecret, userStore) {
     }
 
     console.log('Refreshing with refreshToken:', user.refreshToken)
-    const basic = new Buffer(clientID + ':' + clientSecret).toString('base64')
+    const basic = new Buffer(`${clientID}:${clientSecret}`).toString('base64')
     return rp({
-      method: 'POST',
-      uri: 'https://api.fitbit.com/oauth2/token',
+      method:  'POST',
+      uri:     'https://api.fitbit.com/oauth2/token',
       headers: {
-        'Authorization': 'Basic ' + basic,
-        'Content-Type':  'application/x-www-form-urlencoded',
+        Authorization:  `Basic ${basic}`,
+        'Content-Type': 'application/x-www-form-urlencoded',
       },
       form: {
-        grant_type: 'refresh_token',
+        grant_type:    'refresh_token',
         refresh_token: user.refreshToken,
       },
     }).then(response => {
       userStore.update(user.fitbitId, {
-        accessToken: response.access_token, refreshToken: response.refresh_token
+        accessToken:  response.access_token, refreshToken: response.refresh_token,
       })
     })
   }
@@ -68,15 +68,13 @@ const FitbitApi = function(rp, clientID, clientSecret, userStore) {
 }
 
 // Store all steps in separate collection for later charting.
-const updateStepsInMongo = (db, id, date, steps) => {
-  return db.collection('steps').findOneAndUpdate(
-    {user: id, date: date},
-    {user: id, date: date, steps: steps},
-    {upsert: true}
+const updateStepsInMongo = (db, id, date, steps) => db.collection('steps').findOneAndUpdate(
+    { user: id, date },
+    { user: id, date, steps },
+    { upsert: true },
   )
-}
 
-/// Find runs; reduce steps to an array of runs with start, pauses, and end
+// / Find runs; reduce steps to an array of runs with start, pauses, and end
 const analyzeSteps = steps => {
   const runs = []
   let current = null
@@ -87,22 +85,19 @@ const analyzeSteps = steps => {
 
     if (step.value > 120) {
       // Running this minute.
-      if (!current) current = {start: minute, pauses: [], steps: [step.value]}
+      if (!current) current = { start: minute, pauses: [], steps: [step.value] }
       else if ('end' in current) {
         if (minute - current.end < 15) {
           // Consider not running for < 15 minutes a pause.
-          current.pauses.push({start: current.end, end: minute - 1})
+          current.pauses.push({ start: current.end, end: minute - 1 })
           delete current.end
-        }
-        else {
+        }        else {
           // New run!
           runs.push(current)
-          current = {start: minute, pauses: [], steps: [step.value]}
+          current = { start: minute, pauses: [], steps: [step.value] }
         }
-      }
-      else current.steps.push(step.value)
-    }
-    else if (current && !('end' in current)) {
+      }      else current.steps.push(step.value)
+    }    else if (current && !('end' in current)) {
       current.end = minute - 1
       if (current.end - current.start < 3) current = null
     }
@@ -124,14 +119,14 @@ const analyzeSteps = steps => {
 app.post('/', (req, res) => {
   res.sendStatus(204) // Just acknowledge receiving the push.
 
-  app.locals.mongo.connect(req.webtaskContext.secrets.MONGO_URL, {promiseLibrary: Promise})
+  app.locals.mongo.connect(req.webtaskContext.secrets.MONGO_URL, { promiseLibrary: Promise })
     .then(db => {
       const userStore = UserStore(db.collection('users'))
       const fitbitApi = FitbitApi(
         app.locals.rp,
         req.webtaskContext.secrets.FITBIT_CLIENT_ID,
         req.webtaskContext.secrets.FITBIT_CLIENT_SECRET,
-        userStore
+        userStore,
       )
 
       return Promise.all(req.body.map(
@@ -140,18 +135,18 @@ app.post('/', (req, res) => {
           .spread((user, steps) => Promise.all([
             updateStepsInMongo(
               db, updated.ownerId, updated.date,
-              steps['activities-steps-intraday'].dataset
+              steps['activities-steps-intraday'].dataset,
             ),
             analyzeSteps(steps['activities-steps-intraday'].dataset),
-            user
+            user,
           ]))
           .spread((result, analysis, user) => userStore.update(
-            user.fitbitId, {['runsByDate.' + updated.date]: analysis}
-          ))
+            user.fitbitId, { [`runsByDate.${updated.date}`]: analysis },
+          )),
       ))
     })
-    .then(result => {console.log('All things done.', result)})
-    .catch(err => {console.log('Err', err)})
+    .then(result => { console.log('All things done.', result) })
+    .catch(err => { console.log('Err', err) })
 })
 
 // For Fitbit verify-calls.
